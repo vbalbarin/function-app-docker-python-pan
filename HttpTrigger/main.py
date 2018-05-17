@@ -33,11 +33,11 @@ def palo_alto_ip(post_req_data):
   try:
     nic = json.loads(post_req_data['properties']['responseBody'])
     return {
-      primary_private_ip(nic['properties']['ipConfigurations']):
-      palo_alto_tags(nic['tags'], namespace='nic|tags')
+      "ipAddress": primary_private_ip(nic['properties']['ipConfigurations']),
+      "tags": palo_alto_tags(nic['tags'], namespace='nic|tags')
     }
   except:
-    return {"": []}
+    return {"ipAddress": None, "tags": None}
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
   """ Azure Function App Execution Loop """
