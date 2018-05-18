@@ -38,7 +38,7 @@ def palo_alto_tags(azure_dict, namespace='', delim='|'):
     pan_tags.append(prefix + delim + 'None')
   return pan_tags
 
-def palo_alto_ip(post_req_data):
+def azure_nic(post_req_data):
   """This function takes a JSON payload from the webhook and emits a dictionary of {"ip": []}"""
   try:
     nic = json.loads(post_req_data['properties']['responseBody'])
@@ -83,9 +83,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
   try:
     req_body = req.get_json()
     response_body = json.loads(req_body['properties']['responseBody']) # responseBody of webhook is string
-    ip_address = json.dumps(palo_alto_ip(req_body))
+    nic = json.dumps(azure_nic(req_body))
     return func.HttpResponse(
-      body=ip_address,
+      body=nic,
       mimetype='application/json',
       status_code=200)
   except:
