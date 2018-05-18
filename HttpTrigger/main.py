@@ -6,6 +6,9 @@ from os import environ
 
 import azure.functions as func
 
+# Check for AUTH_CODE in OS environment
+AUTH_CODE = environ.get('AUTH_CODE')
+
 def temp_auth_code():
   return secrets.token_urlsafe(32)
 
@@ -44,8 +47,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
   logging.info('Python HTTP trigger function processed a request.')
   
-  # Check for AUTH_CODE in OS environment
-  AUTH_CODE = environ.get('AUTH_CODE')
+
   if AUTH_CODE is None:
     auth_code = temp_auth_code()
     logging.info('AUTH_CODE environment variable not found.')
