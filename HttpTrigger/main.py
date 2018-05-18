@@ -1,13 +1,20 @@
+# -*- coding: utf-8 -*-
+
 import logging
 import json
 import secrets
 
-from os import environ
+from azure import functions as func
+from os import environ as env
+from pandevice import firewall as pan_fw
+from pandevice import objects as pan_objs
 
-import azure.functions as func
+# Get AUTH_CODE in OS environment
+AUTH_CODE = env.get('AUTH_CODE')
 
-# Check for AUTH_CODE in OS environment
-AUTH_CODE = environ.get('AUTH_CODE')
+# Get FW_IP and API_KEY
+FW_IP = env.get('FW_IP')
+API_KEY = env.get('API_KEY')
 
 def temp_auth_code():
   return secrets.token_urlsafe(32)
