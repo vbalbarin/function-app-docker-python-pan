@@ -18,18 +18,6 @@ AUTH_CODE = env.get('AUTH_CODE')
 FW_IP = env.get('FW_IP')
 API_KEY = env.get('API_KEY')
 
-def pan_firewall(hostname='', api_key=''):
-  try:
-    fw = pan_fw.Firewall(hostname=hostname, api_key=api_key)
-    version, platform, serial = parse(
-      "SystemInfo(version='{}', platform='{}', serial='{}')",
-      str(fw.refresh_system_info())).fixed
-    logging.info('FW version={}:FW platform={}: FW serial={}'.format(version, platform, serial))
-    return fw
-  except Exception as e:
-    logging.error('Cannot connect to PAN:{}'.format(str(e)))
-    return None
-
 def temp_auth_code():
   return secrets.token_urlsafe(32)
 
@@ -63,11 +51,58 @@ def azure_nic(post_req_data):
   except:
     return {"ipAddress": None, "tags": None}
 
+def pan_firewall(hostname='', api_key=''):
+  try:
+    fw = pan_fw.Firewall(hostname=hostname, api_key=api_key)
+    version, platform, serial = parse(
+      "SystemInfo(version='{}', platform='{}', serial='{}')",
+      str(fw.refresh_system_info())).fixed
+    logging.info('FW version={}:FW platform={}: FW serial={}'.format(version, platform, serial))
+    return fw
+  except Exception as e:
+    logging.error('Cannot connect to PAN:{}'.format(str(e)))
+    return None
+
+def pan_tag_objs(tag_names=[]):
+  """ Returns a list of PAN tag objects. It will take a list of tag names and add them to exising tags """
+  current_tag_objects = pan_objs.Tag.refreshall(FW, add=False)
+  current_tag_names= [t.name for t in current_tag_objects]
+  new_tags = list(
+    set(tag_names).difference(set(current_tag_names)))
+  logging.info('Supplied tags:{}'.format(tag_names))
+  new_pan_tag_objects = [pan_objs.Tag(name=t) for t in new_tags]
+  # Add current and new tag objects to FW object
+  if len(new_pan_tag_objects) != 0:
+    logging.info('Found {:d}'.format(len(new_tags)))
+    logging.info('Adding tags:{}'.format(new_tags))
+    objs_to_be_added = current_tag_objects + new_pan_tag_objects
+    for pan_tag_obj in objs_to_be_added:
+      FW.add(pan_tag_obj)
+    objs_to_be_added[0].create_similar()
+    objs_to_be_added[0].apply_similar()
+  else:
+    logging.info('All supplied tags already exist; no new tags added')
+  current_tag_objects = pan_objs.Tag.refreshall(FW, add=False)
+  logging.info('Current tags:{}'.format([t.name for t in current_tag_objects]))
+  return current_tag_objects
+
+def pan_ip_obj(azure_nic={"ipAddress": "", "tags": []}):
+  """ Returns a PAN ip object """
+  current_ip_objects = pan_objs.AddressObject.refreshall(FW, add=False)
+  new_ip_obj = pan_objs.AddressObject(
+    name='ip_' + azure_nic['ipAddress'],
+    value=azure_nic['ipAddress'],
+    tag=azure_nic['tags'])
+  ip_objs_to_be_added = current_ip_objects + [new_ip_obj]
+  for ip_obj in ip_objs_to_be_added:
+    FW.add(ip_obj)
+  new_ip_obj.create()
+  new_ip_obj.apply()
+  return new_ip_obj
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
   """ Azure Function App Execution Loop """
-
   logging.info('Python HTTP trigger function processed a request.')
-  
 
   if AUTH_CODE is None:
     auth_code = temp_auth_code()
@@ -100,7 +135,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
   try:
     req_body = req.get_json()
     response_body = json.loads(req_body['properties']['responseBody']) # responseBody of webhook is string
-    nic = json.dumps(azure_nic(req_body))
+    nic = json.dumps(azure_nic(req_body))  
     return func.HttpResponse(
       body=nic,
       mimetype='application/json',
