@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import logging
 import json
+import logging
 import secrets
 import sys
 
@@ -9,6 +9,7 @@ from azure import functions as func
 from os import environ as env
 from pandevice import firewall as pan_fw
 from pandevice import objects as pan_objs
+from parse import *
 
 # Get AUTH_CODE in OS environment
 AUTH_CODE = env.get('AUTH_CODE')
@@ -20,7 +21,10 @@ API_KEY = env.get('API_KEY')
 def pan_firewall(hostname='', api_key=''):
   try:
     fw = pan_fw.Firewall(hostname=hostname, api_key=api_key)
-    logging.info('FW system information:{}'.format(fw.refresh_system_info()))
+    version, platform, serial = parse(
+      "SystemInfo(version='{}', platform='{}', serial='{}')",
+      str(fw.refresh_system_info())).fixed
+    logging.info('FW version={}:FW platform={}: FW serial={}'.format(version, platform, serial))
     return fw
   except Exception as e:
     logging.error('Cannot connect to PAN:{}'.format(str(e)))
