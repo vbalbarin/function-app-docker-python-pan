@@ -3,6 +3,7 @@
 import logging
 import json
 import secrets
+import sys
 
 from azure import functions as func
 from os import environ as env
@@ -16,17 +17,14 @@ AUTH_CODE = env.get('AUTH_CODE')
 FW_IP = env.get('FW_IP')
 API_KEY = env.get('API_KEY')
 
-FW = pan_fw.Firewall(hostname=FW_IP, api_key=API_KEY)
-
-def pan_fw_info():
+def pan_firewall(hostname='', api_key=''):
   try:
-    system_info = FW.refresh_system_info()
-    logging.info(f'FW system info: {system_info}')
-    return
-  except:
-    pass
-    logging.warn('No FW appliance.')
-    return
+    fw = pan_fw.Firewall(hostname=hostname, api_key=api_key)
+    logging.info('FW system information:{}'.format(fw.refresh_system_info()))
+    return fw
+  except Exception as e:
+    logging.error('Cannot connect to PAN:{}'.format(str(e)))
+    return None
 
 def temp_auth_code():
   return secrets.token_urlsafe(32)
@@ -77,8 +75,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
       status_code=200)
   
   logging.info('AUTH_CODE environment variable found.')
-  pan_fw_info()
-  
+
   code = req.params.get('code')
   logging.info('Checking for valid auth code supplied in query string.')
   # TODO: check for code in req.header.
@@ -92,7 +89,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
       status_code=401)
 
   logging.info('Code supplied on query string matches AUTH_CODE.')
-  logging.info('FW system info: {}'.format(FW.refresh_system_info()))
+
+  #pan_fw_info()
+  fw = pan_firewall(hostname=FW_IP, api_key=API_KEY)
   
   try:
     req_body = req.get_json()
