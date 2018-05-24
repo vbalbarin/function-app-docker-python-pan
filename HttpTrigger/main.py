@@ -26,7 +26,7 @@ def primary_private_ip(ip_configs):
   return [ip['properties']['privateIPAddress']
     for ip in ip_configs if ip['properties']['primary']][0]
 
-def palo_alto_tags(azure_dict, namespace='', delim='|'):
+def palo_alto_tags(azure_dict, namespace='', delim='_'):
   """This function takes a dictionary of MS Azure tags and returns  a list
   of Palo Alto Networks formatted tags, takes an optional namespace for prefix for pan tag element"""
   prefix = 'azure'
