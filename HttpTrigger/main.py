@@ -100,6 +100,14 @@ def pan_ip_obj(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   new_ip_obj.apply()
   return new_ip_obj
 
+def pan_ipaddress_securityzone(azure_nic={"ipAddress": "", "tags": []}):
+  """ Returns security zone from azure nic ipaddress """
+  pass
+
+def pan_addressgroup_obj(pan_fw):
+  """ Returns address group """
+  pass
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
   """ Azure Function App Execution Loop """
   logging.info('Python HTTP trigger function processed a request.')
