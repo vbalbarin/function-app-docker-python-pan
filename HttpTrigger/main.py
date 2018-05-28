@@ -102,7 +102,15 @@ def pan_ip_obj(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
 
 def pan_ipaddress_securityzone(azure_nic={"ipAddress": "", "tags": []}):
   """ Returns security zone from azure nic ipaddress """
-  pass
+  security_zone = [t for t in azure_nic['tags'] if '_SecurityZone_' in t]
+  if security_zone:
+    if '_High' in security_zone[0]:
+      return 'SecurityZone_High'
+    elif '_Medium' in security_zone[0]:
+      return 'SecurityZone_Medium'
+    elif '_Low' in security_zone[0]:
+      return 'SecurityZone_Low'
+  return 'SecurityZone_None'
 
 def pan_addressgroup_obj(pan_fw):
   """ Returns address group """
