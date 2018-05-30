@@ -46,7 +46,7 @@ def azure_nic(post_req_data):
     nic = json.loads(post_req_data['properties']['responseBody'])
     return {
       "ipAddress": primary_private_ip(nic['properties']['ipConfigurations']),
-      "tags": palo_alto_tags(nic['tags'], namespace='nic|tags')
+      "tags": palo_alto_tags(nic['tags'], namespace='nic_tags')
     }
   except:
     return {"ipAddress": None, "tags": None}
