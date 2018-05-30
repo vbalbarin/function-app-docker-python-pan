@@ -110,7 +110,7 @@ def pan_ipaddress_securityzone(azure_nic={"ipAddress": "", "tags": []}):
     elif '_Medium' in security_zone[0]:
       return f'{prefix}_Medium'
     elif '_Low' in security_zone[0]:
-      return 'f'{prefix}__Low'
+      return f'{prefix}_Low'
   return f'{prefix}_None'
 
 def pan_addressgroup_obj(pan_fw):
@@ -153,6 +153,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     nic = azure_nic(req_body)
     pan_tag_objs(pan_fw=fw, tag_names=nic['tags'])
     pan_ip_obj(pan_fw=fw, azure_nic=nic)
+    logging.info('Security Zone:{}'.format(pan_ipaddress_securityzone(azure_nic=nic)))
     #pan_addressgroup_obj(pan_fw=fw, name='', pan_ip_obj=None)
     return func.HttpResponse(
       body=json.dumps(nic),
