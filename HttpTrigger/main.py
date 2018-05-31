@@ -63,44 +63,43 @@ def pan_firewall(hostname='', api_key=''):
     logging.error('Cannot connect to PAN:{}'.format(str(e)))
     return None
 
-def pan_tag_objs(pan_fw, tag_names=[]):
+def pan_tags(pan_fw, tag_names=[]):
   """ Returns a list of PAN tag objects. It will take a list of tag names and add them to exising tags """
-  current_tag_objects = pan_objs.Tag.refreshall(pan_fw, add=False)
-  current_tag_names= [t.name for t in current_tag_objects]
+  current_tags = pan_objs.Tag.refreshall(pan_fw, add=False)
+  current_tag_names= [t.name for t in current_tags]
   new_tags = list(
     set(tag_names).difference(set(current_tag_names)))
   logging.info('Supplied tags:{}'.format(tag_names))
-  new_pan_tag_objects = [pan_objs.Tag(name=t) for t in new_tags]
+  new_pan_tags = [pan_objs.Tag(name=t) for t in new_tags]
   # Add current and new tag objects to pan_fw object
-  if new_pan_tag_objects:
+  if new_pan_tags:
     logging.info('Found {:d}'.format(len(new_tags)))
     logging.info('Adding tags:{}'.format(new_tags))
-    objs_to_be_added = current_tag_objects + new_pan_tag_objects
-    for pan_tag_obj in objs_to_be_added:
-      pan_fw.add(pan_tag_obj)
+    objs_to_be_added = current_tags + new_pan_tags
+    for pan_tag in objs_to_be_added:
+      pan_fw.add(pan_tag)
     objs_to_be_added[0].create_similar()
     objs_to_be_added[0].apply_similar()
   else:
     logging.info('All supplied tags already exist; no new tags added')
-  current_tag_objects = pan_objs.Tag.refreshall(pan_fw, add=False)
-  logging.info('Current tags:{}'.format([t.name for t in current_tag_objects]))
-  return current_tag_objects
+  current_tags = pan_objs.Tag.refreshall(pan_fw, add=False)
+  logging.info('Current tags:{}'.format([t.name for t in current_tags]))
+  return current_tags
 
-def pan_ip_obj(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
+def pan_ip(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   """ Returns a PAN ip object """
-  current_ip_objects = pan_objs.AddressObject.refreshall(pan_fw, add=False)
-  new_ip_obj = pan_objs.AddressObject(
+  current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
+  new_ip = pan_objs.AddressObject(
     name='ip_' + azure_nic['ipAddress'],
     value=azure_nic['ipAddress'],
     tag=azure_nic['tags'])
-  ip_objs_to_be_added = current_ip_objects + [new_ip_obj]
-  for ip_obj in ip_objs_to_be_added:
-    pan_fw.add(ip_obj)
-  new_ip_obj.create()
-  new_ip_obj.apply()
-  return new_ip_obj
+  for ip in (current_ips + [new_ip]):
+    pan_fw.add(ip)
+  new_ip.create()
+  new_ip.apply()
+  return new_ip
 
-def pan_ipaddress_securityzone(azure_nic={"ipAddress": "", "tags": []}):
+def pan_securityzone(azure_nic={"ipAddress": "", "tags": []}):
   """ Returns security zone from azure nic ipaddress """
   prefix = 'azure_SecurityZone'
   security_zone = [t for t in azure_nic['tags'] if '_SecurityZone_' in t]
@@ -151,10 +150,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
   try:
     req_body = req.get_json()
     nic = azure_nic(req_body)
-    pan_tag_objs(pan_fw=fw, tag_names=nic['tags'])
-    pan_ip_obj(pan_fw=fw, azure_nic=nic)
-    logging.info('Security Zone:{}'.format(pan_ipaddress_securityzone(azure_nic=nic)))
-    #pan_addressgroup_obj(pan_fw=fw, name='', pan_ip_obj=None)
+    pan_tags(pan_fw=fw, tag_names=nic['tags'])
+    pan_ip(pan_fw=fw, azure_nic=nic)
+    logging.info('Security Zone:{}'.format(pan_securityzone(azure_nic=nic)))
+    #pan_addressgroup_obj(pan_fw=fw, name='', pan_ip=None)
     return func.HttpResponse(
       body=json.dumps(nic),
       mimetype='application/json',
