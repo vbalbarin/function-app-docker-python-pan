@@ -148,9 +148,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
   try:
     req_body = req.get_json()
     nic = azure_nic(req_body)
-    t = pan_tags(pan_fw=fw, tag_names=nic['tags'])
-    t[0].create_similar()
-    t[0].apply_similar()
+    tags = pan_tags(pan_fw=fw, tag_names=nic['tags'])
+    if tags:
+      tags[0].create_similar()
+      tags[0].apply_similar()
     ips = pan_ips(pan_fw=fw, azure_nic=nic)
     if ips:
       ips[0].create_similar()
