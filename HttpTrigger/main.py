@@ -75,16 +75,15 @@ def pan_tags(pan_fw, tag_names=[]):
   if new_pan_tags:
     logging.info('Found {:d}'.format(len(new_tags)))
     logging.info('Adding tags:{}'.format(new_tags))
-    objs_to_be_added = current_tags + new_pan_tags
-    for pan_tag in objs_to_be_added:
+    tags_to_be_added = current_tags + new_pan_tags
+    for pan_tag in tags_to_be_added:
       pan_fw.add(pan_tag)
-    objs_to_be_added[0].create_similar()
-    objs_to_be_added[0].apply_similar()
+    #tags_to_be_added[0].create_similar()
+    #tags_to_be_added[0].apply_similar()
+    return tags_to_be_added
   else:
     logging.info('All supplied tags already exist; no new tags added')
-  current_tags = pan_objs.Tag.refreshall(pan_fw, add=False)
-  logging.info('Current tags:{}'.format([t.name for t in current_tags]))
-  return current_tags
+    return current_tags
 
 def pan_ip(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   """ Returns a PAN ip object """
@@ -150,7 +149,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
   try:
     req_body = req.get_json()
     nic = azure_nic(req_body)
-    pan_tags(pan_fw=fw, tag_names=nic['tags'])
+    t = pan_tags(pan_fw=fw, tag_names=nic['tags'])
+    t[0].create_similar()
+    t[0].apply_similar()
     pan_ip(pan_fw=fw, azure_nic=nic)
     logging.info('Security Zone:{}'.format(pan_securityzone(azure_nic=nic)))
     #pan_addressgroup_obj(pan_fw=fw, name='', pan_ip=None)
