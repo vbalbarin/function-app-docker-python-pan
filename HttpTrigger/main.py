@@ -110,9 +110,26 @@ def pan_securityzone(azure_nic={"ipAddress": "", "tags": []}):
       return f'{prefix}_Low'
   return f'{prefix}_None'
 
-def pan_addressgroup_obj(pan_fw):
-  """ Returns address group """
-  pass
+def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
+  """ Returns a PAN static IP address group object """
+  current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
+  ip_address_names = [ip.name for ip in current_ips if ip.value == ip_address]
+  if not ip_address_names:
+    logging.warn('IP Address {} does not exist'.format(ip_address))
+    return None
+  ip_name = ip_address_names[0]
+  current_addressgroups = pan_objs.AddressGroup.refreshall(pan_fw, add=False)  
+  current_addressgroup = [ao for ao in current_addressgroups if ao.name == address_group_name]
+  if not current_addressgroup:
+    logging.warn('PAN AddressGroup {} does not exist'.format(address_group_name))
+    return None
+  logging.info('Found PAN AddressGroup {}'.format(address_group_name))
+  current_addressgroup_static_values = set(current_addressgroup[0].static_value)
+  addressgroup = pan_objs.AddressGroup(
+    name=address_group_name,
+    static_value=current_addressgroup_static_values.union(set([ip_name])))
+  pan_fw.add(addressgroup)
+  return addressgroup
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
   """ Azure Function App Execution Loop """
@@ -157,7 +174,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
       ips[0].create_similar()
       ips[0].apply_similar()
     logging.info('Security Zone:{}'.format(pan_securityzone(azure_nic=nic)))
-    #pan_addressgroup_obj(pan_fw=fw, name='', pan_ip=None)
+    addressgrp = pan_addressgroup(
+      pan_fw=fw,
+      address_group_name=pan_securityzone(azure_nic=nic),
+      ip_address=nic['ipAddress'])
+    if addressgrp:
+      addressgrp.create()
+      addressgrp.apply()
     return func.HttpResponse(
       body=json.dumps(nic),
       mimetype='application/json',
