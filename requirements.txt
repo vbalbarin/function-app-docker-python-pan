@@ -1,4 +1,4 @@
 requests==2.18.4
 pan-python==0.13.0
-pandevice==0.6.2
+pandevice==0.6.3
 parse==1.8.2
