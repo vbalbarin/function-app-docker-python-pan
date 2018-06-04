@@ -87,15 +87,22 @@ def pan_tags(pan_fw, tag_names=[]):
 
 def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   """ Returns a list of PAN Address objects """
+  logging.info('IP address value: {}'.format(azure_nic['ipAddress']))
   current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
-  az_ip = pan_objs.AddressObject(
-    name='ip_' + azure_nic['ipAddress'],
-    value=azure_nic['ipAddress'],
-    tag=azure_nic['tags'])
-  ips = current_ips + [az_ip]
-  for ip in ips:
-    pan_fw.add(ip)
-  return ips
+  for ip in current_ips: pan_fw.add(ip) # Re-add existing
+  if azure_nic['ipAddress']:
+    az_ip = pan_objs.AddressObject(
+      name='ip_' + azure_nic['ipAddress'],
+      value=azure_nic['ipAddress'],
+      tag=azure_nic['tags'])
+      # Adds or updates ip object in pan_fw
+    logging.info('Adding az_ip')
+    pan_fw.add(az_ip)
+    az_ip.create()
+    az_ip.apply()
+  if not [ip for ip in current_ips if ip.value == azure_nic['ipAddress']]:
+    return current_ips + [az_ip]
+  return current_ips
 
 def pan_securityzone(azure_nic={"ipAddress": "", "tags": []}):
   """ Returns security zone from azure nic ipaddress """
@@ -167,20 +174,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     nic = azure_nic(req_body)
     tags = pan_tags(pan_fw=fw, tag_names=nic['tags'])
     if tags:
+      logging.info('Updating PAN Tags')
       tags[0].create_similar()
       tags[0].apply_similar()
+      logging.info('Updated PAN Tags')
     ips = pan_ips(pan_fw=fw, azure_nic=nic)
     if ips:
-      ips[0].create_similar()
-      ips[0].apply_similar()
+      logging.info('Updating PAN AddressObjects')
+      for ip in ips: logging.info(ip.name)
+      logging.info('Updated PAN AddressObjects')
     logging.info('Security Zone:{}'.format(pan_securityzone(azure_nic=nic)))
     addressgrp = pan_addressgroup(
       pan_fw=fw,
       address_group_name=pan_securityzone(azure_nic=nic),
       ip_address=nic['ipAddress'])
     if addressgrp:
+      logging.info('Updating PAN AddressGroups')
       addressgrp.create()
       addressgrp.apply()
+      logging.info('Updated PAN AddressGroups')
     return func.HttpResponse(
       body=json.dumps(nic),
       mimetype='application/json',
