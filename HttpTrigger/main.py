@@ -135,6 +135,15 @@ def pan_securityzone(pan_fw, ip_name=None, label='_SecurityZone_'):
   except Exception as e:
     return ''
 
+def pan_addressgroup_members(pan_fw, name=''):
+  """ Returns a list of addressgroup members """
+  try:
+    if name:
+      return [ao.static_value for ao in pan_objs.AddressGroup.refreshall(pan_fw, add=False)
+        if ao.name == name][0]
+  except Exception as e:
+    return []
+
 def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
   """ Returns a PAN static IP address group object """
   current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
@@ -202,18 +211,44 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
       for ip in ips: logging.info(ip.name)
       logging.info('Updated PAN AddressObjects')
     az_ip_securityzone = azure_securityzone(azure_nic=nic)
-    logging.info('Security Zone for Azure {} :{}'.format(nic['ipAddress'], az_ip_securityzone))
+    logging.info('Security Zone for Azure {}: {}'.format(nic['ipAddress'], az_ip_securityzone))
     pan_ip_securityzone = pan_securityzone(pan_fw=fw, ip_name='ip_' + nic['ipAddress'])
-    logging.info('Security Zone for PAN {} :{}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
-    addressgrp = pan_addressgroup(
-      pan_fw=fw,
-      address_group_name=azure_securityzone(azure_nic=nic),
-      ip_address=nic['ipAddress'])
-    if addressgrp:
-      logging.info('Updating PAN AddressGroups')
-      addressgrp.create()
-      addressgrp.apply()
-      logging.info('Updated PAN AddressGroups')
+    logging.info('Security Zone for PAN {}: {}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
+    if pan_ip_securityzone:
+      if pan_ip_securityzone != az_ip_securityzone:
+        logging.info('Removing {} from {}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
+        static_value_members = pan_addressgroup_members(pan_fw=fw, name=pan_ip_securityzone)
+        logging.info('Current static_value: {}'.format(static_value_members))
+        s = set(static_value_members)
+        s.discard('ip_' + nic['ipAddress'])
+        new_static_value_members = list(s)
+        logging.info('New static_value: {}'.format(new_static_value_members))
+        former_addressgrp = pan_objs.AddressGroup(
+          name=pan_ip_securityzone,
+          static_value=new_static_value_members)
+        new_addressgrp = pan_addressgroup(
+          pan_fw=fw, 
+          address_group_name=az_ip_securityzone,
+          ip_address=nic['ipAddress'])
+        fw.add(former_addressgrp)
+        fw.add(new_addressgrp)
+        addressgrps = [former_addressgrp] + [new_addressgrp]
+      else:
+        logging.info('No changes in AddressGroups.')
+        addressgrps = []
+    else:
+      new_addressgrp = pan_addressgroup(
+        pan_fw=fw, 
+        address_group_name=az_ip_securityzone,
+        ip_address=nic['ipAddress'])
+      fw.add(new_addressgrp)
+      addressgrps = [new_addressgrp]
+    if addressgrps:
+      logging.info('Updating PAN AddressGroups: {}'.format(addressgrps))
+      for ag in addressgrps:
+        ag.create()
+        ag.apply()
+        logging.info('Updated PAN AddressGroup: {}'.format(ag.name))
     return func.HttpResponse(
       body=json.dumps(nic),
       mimetype='application/json',
