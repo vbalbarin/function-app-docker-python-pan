@@ -104,7 +104,7 @@ def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
     return current_ips + [az_ip]
   return current_ips
 
-def pan_securityzone(azure_nic={"ipAddress": "", "tags": []}):
+def azure_securityzone(azure_nic={"ipAddress": "", "tags": []}):
   """ Returns security zone from azure nic ipaddress """
   prefix = 'azure_SecurityZone'
   security_zone = [t for t in azure_nic['tags'] if '_SecurityZone_' in t]
@@ -116,6 +116,24 @@ def pan_securityzone(azure_nic={"ipAddress": "", "tags": []}):
     elif '_Low' in security_zone[0]:
       return f'{prefix}_Low'
   return f'{prefix}_None'
+
+def pan_addressgroup_memberships(pan_fw, ip_name=None):
+  """ Returns a list current addressgroup memberships """
+  if ip_name == None:
+    return []
+  current_addressgroups = pan_objs.AddressGroup.refreshall(pan_fw, add=False)
+  return [ao.name for ao in current_addressgroups if ip_name in ao.static_value]
+
+def pan_securityzone(pan_fw, ip_name=None, label='_SecurityZone_'):
+  """ Returns security zone of a PAN AddressObject with ip_name """
+  try:
+    if ip_name:
+      return [securityzone for securityzone in pan_addressgroup_memberships(pan_fw, ip_name=ip_name)
+        if label in securityzone][0]
+    else:
+      return ''
+  except Exception as e:
+    return ''
 
 def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
   """ Returns a PAN static IP address group object """
@@ -183,10 +201,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
       logging.info('Updating PAN AddressObjects')
       for ip in ips: logging.info(ip.name)
       logging.info('Updated PAN AddressObjects')
-    logging.info('Security Zone:{}'.format(pan_securityzone(azure_nic=nic)))
+    az_ip_securityzone = azure_securityzone(azure_nic=nic)
+    logging.info('Security Zone for Azure {} :{}'.format(nic['ipAddress'], az_ip_securityzone))
+    pan_ip_securityzone = pan_securityzone(pan_fw=fw, ip_name='ip_' + nic['ipAddress'])
+    logging.info('Security Zone for PAN {} :{}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
     addressgrp = pan_addressgroup(
       pan_fw=fw,
-      address_group_name=pan_securityzone(azure_nic=nic),
+      address_group_name=azure_securityzone(azure_nic=nic),
       ip_address=nic['ipAddress'])
     if addressgrp:
       logging.info('Updating PAN AddressGroups')
