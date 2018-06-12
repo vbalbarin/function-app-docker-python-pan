@@ -47,10 +47,11 @@ After installing the pre-requesites, run the docker container.  Bring up a termi
 # Replace square bracket strings with appropriate values.
 
 # Docker and application info
-export DOCKER_ID="<docker_id>"
-export DOCKER_IMAGE_NAME="<docker_image_name>"
-export DOCKER_IMAGE_TAG="${DOCKER_ID}/${DOCKER_IMAGE_NAME}:v0.0.0"
 export APP_NAME="function-app-docker-python-pan"
+export DOCKER_ID="<docker_id>"
+export DOCKER_IMAGE_NAME="${APP_NAME}"
+export DOCKER_IMAGE_TAG="${DOCKER_ID}/${DOCKER_IMAGE_NAME}:v0.0.0"
+
 
 # Retrieve API_KEY for PAN device administrative operations.
 export FW_IP="<pan_fw_ip_addres>"
@@ -207,7 +208,7 @@ mkdir ${APP_NAME}
 git clone ${REPO} ${APP_NAME} --config core.autocrlf=input
 
 ### Build docker container
-cd cd ${APP_NAME}
+cd ${APP_NAME}
 docker build --tag ${DOCKER_IMAGE_TAG} .
 
 ### Run docker container
