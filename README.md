@@ -46,12 +46,19 @@ After installing the pre-requesites, run the docker container.  Bring up a termi
 ```bash
 # Replace square bracket strings with appropriate values.
 
-# Retrieve API_KEY for PAN device administrative operations.
+# Docker and application info
+export DOCKER_ID="<docker_id>"
+export DOCKER_IMAGE_NAME="<docker_image_name>"
+export DOCKER_IMAGE_TAG="${DOCKER_ID}/${DOCKER_IMAGE_NAME}:v0.0.0"
+export APP_NAME="function-app-docker-python-pan"
 
-export FW_IP="[ ip address of PAN virtual appliance ]"
-export USERNAME="[ username of PAN administrator user]"
-export PASSWORD="[ password of USERNAME ]"
-export API_KEY=$(curl -X GET "https://${FW_IP}/api/?type=keygen&user=${USERNAME}&password=${PASSWORD}" | sed -n -e 's/\(.*<key>\)\(.*\)\(<\/key>.*\)/\2/p')
+# Retrieve API_KEY for PAN device administrative operations.
+export FW_IP="<pan_fw_ip_addres>"
+export USERNAME="<pan_fw_administrator_username>"
+export PASSWORD="<pan_fw_administrator_password>"
+export API_KEY=$(curl -k \
+  -X GET "https://${FW_IP}/api/?type=keygen&user=${USERNAME}&password=${PASSWORD}" | \
+  sed -n -e 's/\(.*<key>\)\(.*\)\(<\/key>.*\)/\2/p')
 
 # N.B., add `-k` option to ignore ssl cert validation for self-signed cert on PAN api
 # export API_KEY=$(curl -k -X GET "https://${FW_IP}/api/?type=keygen&user=${USERNAME}&password=${PASSWORD}" | sed -n -e 's/\(.*<key>\)\(.*\)\(<\/key>.*\)/\2/p')
@@ -65,13 +72,20 @@ echo ${API_KEY}
 export AUTH_CODE=$(python  -c 'import secrets; print(secrets.token_urlsafe(32))') && echo ${AUTH_CODE}
 
 # Retrieve repository
+export REPO=https://github.com/vbalbarin/function-app-docker-python-pan.git
 
-git clone https://github.com/vbalbarin/function-app-docker-python-pan.git
-cd function-app-docker-python-pan
+### Clone repository
+mkdir ${APP_NAME}
+git clone ${REPO} ${APP_NAME} --config core.autocrlf=input
+cd ${APP_NAME}
 
-docker build -t docker build -t [docker_accountame]/azure-functions-docker-python:v0.0.0 .
+docker build -t ${DOCKER_IMAGE_TAG} .
 
-docker run docker run -p 8080:80 -e AUTH_CODE="${AUTH_CODE}" -e FW_IP="${FW_IP}" -e API_KEY="${API_KEY}" -it [ docker_accountname ]/azure-functions-docker-python:v0.0.0
+docker run -p 8080:80 \
+  -e AUTH_CODE="${AUTH_CODE}" \
+  -e FW_IP="${FW_IP}" \
+  -e API_KEY="${API_KEY}" \
+  -it ${DOCKER_IMAGE_TAG}
 
 # To test locally, a scrubbed Azure Alert webhook responsebody has been supplied. Edit `./samples/responseBody.sh`
 
@@ -79,7 +93,8 @@ source ./reponseBody.sh
 
 # Execute curl
 
-curl "http://localhost:8080/api/HttpTrigger?code=${AUTH_CODE}" -X POST -H 'Content-Type: application/json'  -d "${JSON_DATA}"
+curl "http://localhost:8080/api/HttpTrigger?code=${AUTH_CODE}" -X POST \ 
+  -H 'Content-Type: application/json' -d "${JSON_DATA}"
 
 # If all goes well, a JSON response with the IP Address and tags should be returned:
 # TODO: create more meaninful JSON responses
@@ -87,9 +102,65 @@ curl "http://localhost:8080/api/HttpTrigger?code=${AUTH_CODE}" -X POST -H 'Conte
 {"ipAddress": "nnn.nnn.nnn.nnn", "tags": ["azure_nic_tags_ForTestingOnly_true", "azure_nic_tags_Name_vmHHMMss", "azure_nic_tags_OwnerId_fl001", "azure_nic_tags_OwnerDepartment_OwnerDepartment", "azure_nic_tags_OwnerDepartmentContact_firstname.lastname@stillness.local", "azure_nic_tags_ChargingAccount_ChargingAccount", "azure_nic_tags_SecurityZone_Zone", "azure_nic_tags_SupportDepartment_SupportDepartment", "azure_nic_tags_SupportDepartmentContact_itsdsqa@stillness.local", "azure_nic_tags_Environment_Prod", "azure_nic_tags_Application_Zone", "azure_nic_tags_CreatedBy_fl001"]}
 
 ```
-## Deploying to Azure.
 
-[In progress]
+## Deploying to Azure
+
+These steps were adapted from [Create a function on Linux using a custom image (preview)](https://docs.microsoft.com/en-us/azure/azure-functions/functions-create-function-linux-custom-image#run-the-build-command). 
+
+** This was not successful. Please see troubleshooting steps in Appendix. **
+
+```bash
+## Testing in Azure Function App Service
+### Initialize environment
+## Replace <value> with specific values
+export APP_NAME="function-app-docker-python-pan"
+export DOCKER_ID="<docker_id>"
+export DOCKER_IMAGE_NAME="${APP_NAME}"
+
+export APPSERVICE_PLAN="${APP_NAME}-asp"
+export RESOURCE_GROUP_NAME="${APP_NAME}-rg"
+export STORAGE_ACCOUNT_NAME="<storage_account_name>"
+export DOCKER_IMAGE_TAG="${DOCKER_ID}/${DOCKER_IMAGE_NAME}:v0.0.0"
+
+### Push custom docker container to docker hub
+docker login --name ${DOCKER_ID}
+docker push ${DOCKER_IMAGE_TAG}
+
+### Create a new Azure Resource Group for Testing
+az group create --name ${RESOURCE_GROUP_NAME} --location eastus2
+
+### Create storage account
+az storage account create --name ${STORAGE_ACCOUNT_NAME} \
+  --location eastus2 \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --sku Standard_LRS
+
+### Retrieve storage account connection string for later use
+export STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
+  --resource-group ${RESOURCE_GROUP_NAME} --name ${STORAGE_ACCOUNT_NAME} \
+  --query connectionString --output tsv)
+
+### Create a new Linux appservice plan to run docker container
+az appservice plan create --name ${APPSERVICE_PLAN} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --sku S1 --is-linux 
+
+### Create new function app using custom docker image
+az functionapp create --name ${APP_NAME} \ 
+  --storage-account ${STORAGE_ACCOUNT_NAME} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --plan ${APPSERVICE_PLAN} \
+  --deployment-container-image-name ${DOCKER_IMAGE_TAG}
+
+### Configure function app with storage account connection strings
+az functionapp config appsettings set --name ${APP_NAME} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --settings AzureWebJobsDashboard=${STORAGE_CONNECTION_STRING} \
+    AzureWebJobsStorage=${STORAGE_CONNECTION_STRING}
+
+### Open browser to 
+### http://${APP_NAME}.azurewebsites.net/api/HttpTrigger?name=foo
+```
 
 ## References
 
@@ -100,3 +171,117 @@ curl "http://localhost:8080/api/HttpTrigger?code=${AUTH_CODE}" -X POST -H 'Conte
 [Create a function on Linux using a custom image (preview)](https://docs.microsoft.com/en-us/azure/azure-functions/functions-create-function-linux-custom-image#run-the-build-command)
 
 [`azure-functions-docker-python-sample`](https://github.com/Azure/azure-functions-docker-python-sample)
+
+## Appendix: Troubleshooting Function  App on Linux: Azure Function App 2.0, Docker, and Python
+
+### Testing Azure Function Apps in Custom Image
+
+Steps to run an Azure Function App in a custom Linux container using the Azure Function App 2.0 runtime--adapted from [Create a function on Linux using a custom image (Preview)](https://docs.microsoft.com/en-us/azure/azure-functions/functions-create-function-linux-custom-image#run-the-build-command)
+
+The following repositories were tested:
+
+1. https://github.com/Azure-Samples/functions-linux-custom-image.git
+2. https://github.com/Azure/azure-functions-docker-python-sample.git
+
+```bash
+### Initialize environment
+## Replace <value> with specific values
+export DOCKER_ID=<docker_id>
+export DOCKER_IMAGE_NAME=<docker_image_name>
+
+export APPSERVICE_PLAN=<azure_appservice_name>
+export APP_NAME=<application_name>
+export RESOURCE_GROUP_NAME=<resource_group_name>
+export STORAGE_ACCOUNT_NAME=<storage_account_name>
+
+export DOCKER_IMAGE_TAG=${DOCKER_ID}/${DOCKER_IMAGE_NAME}:v0.0.0
+
+### REPOs to test, uncomment one or the other
+
+# export REPO=https://github.com/Azure-Samples/functions-linux-custom-image.git
+# or
+# export REPO=https://github.com/Azure/azure-functions-docker-python-sample.git
+
+### Clone repository
+mkdir ${APP_NAME}
+git clone ${REPO} ${APP_NAME} --config core.autocrlf=input
+
+### Build docker container
+cd cd ${APP_NAME}
+docker build --tag ${DOCKER_IMAGE_TAG} .
+
+### Run docker container
+docker run --publish 8080:80 --tag ${DOCKER_IMAGE_TAG} --interactive
+
+### Test locally
+# repo 1
+# curl http://localhost:8080/api/HttpTriggerJS1?name=Foo
+# or
+# repo 2
+# curl http://localhost:8080/api/HttpTrigger?name=Foo
+
+
+## Testing in Azure Function App Service
+
+### Push custom docker container to docker hub
+docker login --name ${DOCKER_ID}
+docker push ${DOCKER_IMAGE_TAG}
+
+### Create a new Azure Resource Group for Testing
+az group create --name ${RESOURCE_GROUP_NAME} --location eastus2
+
+### Create storage account
+az storage account create --name ${STORAGE_ACCOUNT_NAME} \
+  --location eastus2 \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --sku Standard_LRS
+
+### Retrieve storage account connection string for later use
+export STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
+  --resource-group ${RESOURCE_GROUP_NAME} --name ${STORAGE_ACCOUNT_NAME} \
+  --query connectionString --output tsv)
+
+### Create a new Linux appservice plan to run docker container
+az appservice plan create --name ${APPSERVICE_PLAN} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --sku S1 --is-linux 
+
+### Create new function app using custom docker image
+az functionapp create --name ${APP_NAME} \ 
+  --storage-account ${STORAGE_ACCOUNT_NAME} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --plan ${APPSERVICE_PLAN} \
+  --deployment-container-image-name ${DOCKER_IMAGE_TAG}
+
+### Configure function app with storage account connection strings
+az functionapp config appsettings set --name ${APP_NAME} \
+  --resource-group ${RESOURCE_GROUP_NAME} \
+  --settings AzureWebJobsDashboard=${STORAGE_CONNECTION_STRING} \
+    AzureWebJobsStorage=${STORAGE_CONNECTION_STRING}
+
+### Open browser to 
+### http://${APP_NAME}.azurewebsites.net/api/HttpTriggerJS1?name=foo
+### or
+### http://${APP_NAME}.azurewebsites.net/api/HttpTrigger?name=foo
+```
+
+### Results
+
+1. Testing `https://github.com/Azure-Samples/functions-linux-custom-image.git`
+
+```bash
+# local
+curl http://localhost:8080/api/HttpTriggerJS1?name=foo
+# Works
+```
+
+Browsing with Chrome to url `http://${APP_NAME}.azurewebsites.net/api/HttpTriggerJS1?name=foo`works correctly.
+
+2. Testing `https://github.com/Azure/azure-functions-docker-python-sample.git`
+
+```bash
+curl "http://localhost:8080/api/HttpTrigger?name=foo"
+# Returns null
+```
+
+Browsing with Chrome to url `http://${APP_NAME}.azurewebsites.net/api/HttpTrigger?name=foo` returns a 500 error.
