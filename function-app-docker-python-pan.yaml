@@ -1,0 +1,46 @@
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: function-app-docker-python-pan
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: function-app-docker-python-pan
+    spec:
+      containers:
+      - name: function-app-docker-python-pan
+        image: ftscontainers.azurecr.io/function-app-docker-python-pan:v0.0.0
+        ports:
+        - containerPort: 80
+        env:
+        - name: AUTH_CODE
+          valueFrom:
+            secretKeyRef:
+              name: authcode
+              key: AUTH_CODE
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: apikey
+              key: API_KEY
+        - name: FW_IP
+          valueFrom:
+            configMapKeyRef:
+              name: fwip
+              key: FW_IP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: function-app-docker-python-pan
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+  selector:
+    app: function-app-docker-python-pan
