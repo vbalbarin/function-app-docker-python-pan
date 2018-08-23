@@ -108,7 +108,7 @@ curl "http://localhost:8080/api/HttpTrigger?code=${AUTH_CODE}" -X POST \
 
 These steps were adapted from [Create a function on Linux using a custom image (preview)](https://docs.microsoft.com/en-us/azure/azure-functions/functions-create-function-linux-custom-image#run-the-build-command). 
 
-** This was not successful. Please see troubleshooting steps in Appendix. **
+** This was not successful. Please see troubleshooting steps in Appendix I and the workaround in Azure Kubernetes Service (AKS) detailed in Appendix II. **
 
 ```bash
 ## Testing in Azure Function App Service
@@ -173,7 +173,7 @@ az functionapp config appsettings set --name ${APP_NAME} \
 
 [`azure-functions-docker-python-sample`](https://github.com/Azure/azure-functions-docker-python-sample)
 
-## Appendix: Troubleshooting Function  App on Linux: Azure Function App 2.0, Docker, and Python
+## Appendix I: Troubleshooting Function  App on Linux: Azure Function App 2.0, Docker, and Python
 
 ### Testing Azure Function Apps in Custom Image
 
@@ -265,6 +265,249 @@ az functionapp config appsettings set --name ${APP_NAME} \
 ### or
 ### http://${APP_NAME}.azurewebsites.net/api/HttpTrigger?name=foo
 ```
+
+## Appendix II: Creating AKS cluster in a VNET
+
+Because of a breaking change on the Azure Function App backend, Function Apps could not be hosted on docker. A workaround hosting the Python Docker Image running the Azure Function App v2 runtime in an Azure Kubernetes Service (AKS) cluster attached to an Azure VNET was used.
+
+Replace the `<value>`s strings with suitable values for your environment. In order to perform the following steps, one must have the following permissions:
+
+1. Network Contributor roles in the subscription or resource groups containing the AKS VNET and the "Hub" VNET containing the enterprise gateway.
+
+2. Permission to create Azure Active Directory application registrations/service principals that will be used to pull Docker images from the Azure Container Registry.
+
+3. User Access Administrator role to assign roles to applications/service principals.
+
+```bash
+$ # Deleted Credentials of test Service Principal, these are now generated in situ below.
+$ # Deleted Service Principal.
+$ # delete AZ_ environment variables
+
+$ while IFS= read -r result; do unset ${result%%=*}; done < <(env | grep AZ_)
+
+$ export AZ_AKS_LOCATION=eastus2 && \
+  export AZ_AKS_NAME=<azure_kubernetes_service_cluster_name> && \
+  export AZ_ACR_NAME=<azure_container_repository_name> && \
+  export AZ_AKS_RESOURCE_GROUP=${AZ_AKS_NAME}-rg && \
+  export AZ_ACR_RESOURCE_GROUP=${AZ_ACR_NAME}-rg && \
+  export AZ_AKS_CLUSTER=${AZ_AKS_NAME}-cluster && \
+  export AZ_AKS_VNET=${AZ_AKS_NAME}-${AZ_AKS_LOCATION}-vnet && \
+  export AZ_AKS_VNET_CIDR='<azure_vnet_cidr_block_for_azure_kubernetes_service_slash22>' && \
+  export AZ_AKS_DNS_SERVICE_IP='<azure_kubernetes_dns_service_ip_in_cidr_block_for_services>' && \
+  export AZ_AKS_CLUSTER_SUBNET=${AZ_AKS_NAME}-cluster-subnet && \
+  export AZ_AKS_SERVICE_SUBNET=${AZ_AKS_NAME}-service-subnet && \
+  export AZ_AKS_CLUSTER_SUBNET_CIDR='<azure_kubernetes_cidr_block_for_cluster_subnet_slash23>' && \
+  export AZ_AKS_SERVICE_CIDR='<azure_kubernetes_cidr_block_for_services_slash24>'
+
+$ az login
+Note, we have launched a browser for you to login. For old experience with device code, use "az login --use-device-code"
+You have logged in. Now let us find all subscriptions you have access to...
+[
+  {
+    "cloudName": "AzureCloud",
+    "id": "aaaaaaaa-bbbb-0000-1111-cccccccccccc",
+    "isDefault": true,
+    "name": "SubscriptionName",
+    "state": "Enabled",
+    "tenantId": "aaaaaaaa-bbbb-0000-1111-cccccccccccc",
+    "user": {
+      "name": "first.last@contoso.com",
+      "type": "user"
+    }
+  },
+  <truncated>
+]
+
+$ export AZ_CURRENT_SUBSCRPTN_ID=$(az account show --query "id" --output tsv)
+
+$ # Search for "id" value that corresponds to subscription in which to place AKS resource group.
+$ # $ az account set -s "< id >"
+
+$ az group create --name ${AZ_AKS_RESOURCE_GROUP} --location ${AZ_AKS_LOCATION}
+
+$ # Create VNET with AZ_AKS_CLUSTER_SUBNET
+$ az network vnet create --name ${AZ_AKS_VNET} \
+                         --location ${AZ_AKS_LOCATION} \
+                         --resource-group ${AZ_AKS_RESOURCE_GROUP} \
+                         --address-prefix "${AZ_AKS_VNET_CIDR}" \
+                         --subnet-name ${AZ_AKS_CLUSTER_SUBNET} \
+                         --subnet-prefix "${AZ_AKS_CLUSTER_SUBNET_CIDR}"
+
+$ export AZ_AKS_VNET_ID=$(az network vnet show --name ${AZ_AKS_VNET} \
+                                               --resource-group ${AZ_AKS_RESOURCE_GROUP} \
+                                               --query "id" --output tsv)
+
+$ # Create service subnet (May not be necessary. TODO: ASK)
+$ #$ az network vnet subnet create --name ${AZ_AKS_SERVICE_SUBNET} \
+$ #                                --resource-group ${AZ_AKS_RESOURCE_GROUP} \
+$ #                                --vnet-name ${AZ_AKS_VNET} \
+$ #                                --address-prefix "${AZ_AKS_SERVICE_CIDR}"
+
+$ # Will need to create peering with hub VNET.
+
+$ # Create peering from current subscription to remote vnet in second subscription
+$ # Retrieve subscription id of subscription containing the remote vnet, in this case <ITS Shared Services>
+
+$ export AZ_REMOTE_VNET_SUBSCRPTN_NAME="ITS Shared Services" && \
+  export AZ_AKS_VNET_PEER="VNET-ITS-SharedServices" && \
+  export AZ_REMOTE_VNET_SUBSCRPTN_QUERY="[?name=='${AZ_REMOTE_VNET_SUBSCRPTN_NAME}'].{subscriptionId: id}" && \
+  export AZ_REMOTE_VNET_QUERY="[?name=='${AZ_AKS_VNET_PEER}'].{vnetID: id}" && \
+  export AZ_REMOTE_VNET_RG_QUERY="[?name=='${AZ_AKS_VNET_PEER}'].{vnetRG: resourceGroup}"
+
+
+$ export AZ_REMOTE_VNET_SUBSCRPTN_ID=$(az account list --query "${AZ_REMOTE_VNET_SUBSCRPTN_QUERY}" \
+                                                           --output tsv)
+
+$ export AZ_REMOTE_VNET_RG=$(az network vnet list --subscription ${AZ_REMOTE_VNET_SUBSCRPTN_ID} \
+                                                  --query "${AZ_REMOTE_VNET_RG_QUERY}" \
+                                                  --output tsv)
+
+$ # Using subscription id, retrieve resource id of the remote vnet with name <VNET-ITS-SharedServices>
+$ export AZ_REMOTE_VNET_ID=$(az network vnet list --subscription ${AZ_REMOTE_VNET_SUBSCRPTN_ID} \
+                                                  --query "${AZ_REMOTE_VNET_QUERY}" \
+                                                  --output tsv)
+
+$ az network vnet peering create --resource-group ${AZ_AKS_RESOURCE_GROUP} \
+                                 --name ${AZ_AKS_VNET}-${AZ_AKS_VNET_PEER}-peering \
+                                 --vnet-name ${AZ_AKS_VNET} \
+                                 --remote-vnet-id ${AZ_REMOTE_VNET_ID} \
+                                 --allow-vnet-access \
+                                 --allow-forwarded-traffic \
+                                 --use-remote-gateways
+
+$ # Create peering from remote vnet in second subscription to vnet in current subscription
+$ # Specifying remote subscription id and reversing values:
+
+$ az network vnet peering create --subscription ${AZ_REMOTE_VNET_SUBSCRPTN_ID} \
+                                 --resource-group ${AZ_REMOTE_VNET_RG} \
+                                 --name ${AZ_AKS_VNET_PEER}-${AZ_AKS_VNET}-peering \
+                                 --vnet-name ${AZ_AKS_VNET_PEER} \
+                                 --remote-vnet-id ${AZ_AKS_VNET_ID} \
+                                 --allow-vnet-access \
+                                 --allow-forwarded-traffic \
+                                 --allow-gateway-transit
+
+$ # Create a service principal and get name and password.
+$ az ad sp create-for-rbac --skip-assignment --name ${AZ_AKS_NAME}-$(date -j -f "%a %b %d %T %Z %Y" "`date`" "+%s")-app-sp | tee "/tmp/AZ_sp.json"
+
+$ #  `jq` utility istalled via via homebrew
+$ export AZ_SERVICE_PRINCIPAL=$(jq -r .appId "/tmp/AZ_sp.json") && \
+  export AZ_CLIENT_SECRET=$(jq -r .password "/tmp/AZ_sp.json")
+
+$ # Get subnet resource id
+$ export AZ_AKS_CLUSTER_SUBNET_ID="$(az network vnet subnet list --resource-group ${AZ_AKS_RESOURCE_GROUP} --vnet-name ${AZ_AKS_VNET} --query [].id --output tsv | grep ${AZ_AKS_CLUSTER_SUBNET})"
+
+$ # Assign role to service principal
+$ az role assignment create --assignee ${AZ_SERVICE_PRINCIPAL} \
+                            --role "Network Contributor" \
+                            --scope "${AZ_AKS_CLUSTER_SUBNET_ID}"
+
+
+$ # Create AKS cluster
+$ az aks create --resource-group ${AZ_AKS_RESOURCE_GROUP} \
+              --name ${AZ_AKS_CLUSTER} \
+              --network-plugin azure \
+              --vnet-subnet-id "${AZ_AKS_CLUSTER_SUBNET_ID}" \
+              --docker-bridge-address 172.17.0.1/16 \
+              --service-cidr ${AZ_AKS_SERVICE_CIDR} \
+              --dns-service-ip ${AZ_AKS_DNS_SERVICE_IP} \
+              --service-principal ${AZ_SERVICE_PRINCIPAL} \
+              --client-secret "${AZ_CLIENT_SECRET}" \
+              --debug
+
+$ # Get cluster credentials and cache in .kube config
+$ az aks get-credentials --resource-group ${AZ_AKS_RESOURCE_GROUP} --name ${AZ_AKS_CLUSTER}
+
+$ kubectl get nodes
+NAME                       STATUS    ROLES     AGE       VERSION
+aks-nodepool1-56068326-0   Ready     agent     19h       v1.9.9
+aks-nodepool1-56068326-1   Ready     agent     19h       v1.9.9
+aks-nodepool1-56068326-2   Ready     agent     19h       v1.9.9
+
+$ export AZ_ACR_LOGIN_SERVER=$(az acr list --resource-group ${AZ_ACR_RESOURCE_GROUP} --query "[].{acrLoginServer:loginServer}" --output tsv) && \
+ export AZ_ACR_IMAGE=function-app-docker-python-pan:v0.0.0 && \
+ export AZ_FUNC_NAME=function-app-docker-python-pan
+
+$ # Allow SP access to ACR registry
+$ export AZ_ACR_REGISTRY_ID=$(az acr show --name ${AZ_ACR_NAME} --query id --output tsv)
+$ az role assignment create --assignee ${AZ_SERVICE_PRINCIPAL} --scope "${AZ_ACR_REGISTRY_ID}" --role reader
+
+$ cat <<:EOF | tee function-app-docker-python-pan.yaml
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: ${AZ_FUNC_NAME}
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ${AZ_FUNC_NAME}
+    spec:
+      containers:
+      - name: ${AZ_FUNC_NAME}
+        image: ${AZ_ACR_LOGIN_SERVER}/${AZ_ACR_IMAGE}
+        ports:
+        - containerPort: 80
+        env:
+        - name: AUTH_CODE
+          valueFrom:
+            secretKeyRef:
+              name: authcode
+              key: AUTH_CODE
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: apikey
+              key: API_KEY
+        - name: FW_IP
+          valueFrom:
+            configMapKeyRef:
+              name: fwip
+              key: FW_IP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${AZ_FUNC_NAME}
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+  selector:
+    app: ${AZ_FUNC_NAME}
+:EOF
+
+$ # Create Secrets for Kubernetes
+$ kubectl create secret generic authcode --from-literal=AUTH_CODE="${AUTH_CODE}" && \
+  kubectl create secret generic apikey --from-literal=API_KEY="${API_KEY}" && \
+  kubectl create configmap fwip --from-literal=FW_IP="${FW_IP}"
+
+$ # Deploy application
+$ kubectl apply -f function-app-docker-python-pan.yaml
+
+$ # Obtain pod status
+$ kubectl get pods
+NAME                                              READY     STATUS    RESTARTS   AGE
+function-app-docker-python-pan-788f777c49-mf9zp   1/1       Running   0          3m
+
+$ # Obtain service status
+$ kubectl get service ${AZ_FUNC_NAME} --watch
+NAME                             TYPE           CLUSTER-IP   EXTERNAL-IP       PORT(S)        AGE
+function-app-docker-python-pan   LoadBalancer   <cluster-ip> <internal-ip>     80:31865/TCP   5m
+$ # The external IP is the IP of the Interanl LoadBalancer taken from the IP address pool of the AKS cluster
+
+$ # Testing.
+$ # Modify sample/responseBody.sh with specific test values
+$ source ./sample/responseBody.sh
+$ curl "http://<internal-ip>/api/HttpTrigger?code=${AUTH_CODE}" -X POST -H 'Content-Type: application/json'  -d "${JSON_DATA}"
+{"ipAddress": "<vm_private_ip>", "tags": ["azure_nic_tags_ForTestingOnly_true", "azure_nic_tags_Name_vm123308", "azure_nic_tags_OwnerId_fl001", "azure_nic_tags_OwnerDepartment_OwnerDepartment", "azure_nic_tags_OwnerDepartmentContact_firstname.lastname@stillness.local", "azure_nic_tags_ChargingAccount_ChargingAccount", "azure_nic_tags_SecurityZone_High", "azure_nic_tags_SupportDepartment_SupportDepartment", "azure_nic_tags_SupportDepartmentContact_itsdsqa@stillness.local", "azure_nic_tags_Environment_Prod", "azure_nic_tags_Application_App", "azure_nic_tags_CreatedBy_fl001"]}
+$ # verify on the PAN
+
+````
 
 ### Results
 
