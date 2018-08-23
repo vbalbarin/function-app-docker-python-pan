@@ -89,6 +89,11 @@ docker run -p 8080:80 \
   -it ${DOCKER_IMAGE_TAG}
 
 # To test locally, a scrubbed Azure Alert webhook responsebody has been supplied. Edit `./samples/responseBody.sh`
+# Generate a Response Body for local testing from sample/responseBody.sh.txt with specific test values
+# Remember to escape dots in your_ip_address_value
+sed 's/\<ip_address\>/your_ip_address_value/g' sample/responseBody.sh.txt > sample/responseBody.sh
+sed -i '' 's/\<vmHHMMss\>/your_vm_name/g' sample/responseBody.sh
+sed -i '' 's/\<security_zone\>/your_security_zone/g' sample/responseBody.sh
 
 source ./reponseBody.sh
 
@@ -501,7 +506,12 @@ function-app-docker-python-pan   LoadBalancer   <cluster-ip> <internal-ip>     8
 $ # The external IP is the IP of the Interanl LoadBalancer taken from the IP address pool of the AKS cluster
 
 $ # Testing.
-$ # Modify sample/responseBody.sh with specific test values
+$ # Generate a Response Body for local testing from sample/responseBody.sh.txt with specific test values
+$ # Remember to escape dots in your_ip_address_value
+$ sed 's/\<ip_address\>/your_ip_address_value/g' sample/responseBody.sh.txt > sample/responseBody.sh
+$ sed -i '' 's/\<vmHHMMss\>/your_vm_name/g' sample/responseBody.sh
+$ sed -i '' 's/\<security_zone\>/your_security_zone/g' sample/responseBody.sh
+$
 $ source ./sample/responseBody.sh
 $ curl "http://<internal-ip>/api/HttpTrigger?code=${AUTH_CODE}" -X POST -H 'Content-Type: application/json'  -d "${JSON_DATA}"
 {"ipAddress": "<vm_private_ip>", "tags": ["azure_nic_tags_ForTestingOnly_true", "azure_nic_tags_Name_vm123308", "azure_nic_tags_OwnerId_fl001", "azure_nic_tags_OwnerDepartment_OwnerDepartment", "azure_nic_tags_OwnerDepartmentContact_firstname.lastname@stillness.local", "azure_nic_tags_ChargingAccount_ChargingAccount", "azure_nic_tags_SecurityZone_High", "azure_nic_tags_SupportDepartment_SupportDepartment", "azure_nic_tags_SupportDepartmentContact_itsdsqa@stillness.local", "azure_nic_tags_Environment_Prod", "azure_nic_tags_Application_App", "azure_nic_tags_CreatedBy_fl001"]}
