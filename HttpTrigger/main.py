@@ -11,34 +11,29 @@ from pandevice import firewall as pan_fw
 from pandevice import objects as pan_objs
 from parse import *
 
-# Get AUTH_CODE in OS environment
-AUTH_CODE = env.get('AUTH_CODE')
-
-# Get FW_IP and API_KEY
-FW_IP = env.get('FW_IP')
-API_KEY = env.get('API_KEY')
+APP_CONFIG = {
+  'authorization_code': env.get('AUTH_CODE'),
+  'fw_ip': env.get('FW_IP'),
+  'api_key': env.get('API_KEY')
+}
 
 logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def temp_auth_code():
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   auth_code = secrets.token_urlsafe(32)
   logger.info('Generated auth_code {}'.format(auth_code))
   return auth_code
 
 def primary_private_ip(ip_configs):
   """ This function extracts primary, private ipaddress """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   return [ip['properties']['privateIPAddress']
     for ip in ip_configs if ip['properties']['primary']][0]
 
 def palo_alto_tags(azure_dict, namespace='', delim='_'):
   """This function takes a dictionary of MS Azure tags and returns  a list
   of Palo Alto Networks formatted tags, takes an optional namespace for prefix for pan tag element"""
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   prefix = 'azure'
   if namespace:
     prefix = prefix + delim + namespace
@@ -52,8 +47,6 @@ def palo_alto_tags(azure_dict, namespace='', delim='_'):
 
 def azure_nic(post_req_data):
   """This function takes a JSON payload from the webhook and emits a dictionary of {"ip": []}"""
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   try:
     nic = json.loads(post_req_data['properties']['responseBody'])
     return {
@@ -64,8 +57,6 @@ def azure_nic(post_req_data):
     return {"ipAddress": None, "tags": None}
 
 def pan_firewall(hostname='', api_key=''):
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   try:
     fw = pan_fw.Firewall(hostname=hostname, api_key=api_key)
     version, platform, serial = parse(
@@ -79,8 +70,6 @@ def pan_firewall(hostname='', api_key=''):
 
 def pan_tags(pan_fw, tag_names=[]):
   """ Returns a list of PAN tag objects. It will take a list of tag names and add them to exising tags """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   current_tags = pan_objs.Tag.refreshall(pan_fw, add=False)
   current_tag_names= [t.name for t in current_tags]
   new_tags = list(
@@ -103,8 +92,6 @@ def pan_tags(pan_fw, tag_names=[]):
 
 def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   """ Returns a list of PAN Address objects """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   logger.info('IP address value: {}'.format(azure_nic['ipAddress']))
   current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
   for ip in current_ips: pan_fw.add(ip) # Re-add existing
@@ -124,8 +111,6 @@ def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
 
 def azure_securityzone(azure_nic={"ipAddress": "", "tags": []}):
   """ Returns security zone from azure nic ipaddress """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   prefix = 'azure_SecurityZone'
   security_zone = [t for t in azure_nic['tags'] if '_SecurityZone_' in t]
   if security_zone:
@@ -139,8 +124,6 @@ def azure_securityzone(azure_nic={"ipAddress": "", "tags": []}):
 
 def pan_addressgroup_memberships(pan_fw, ip_name=None):
   """ Returns a list current addressgroup memberships """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   if ip_name == None:
     return []
   current_addressgroups = pan_objs.AddressGroup.refreshall(pan_fw, add=False)
@@ -148,8 +131,6 @@ def pan_addressgroup_memberships(pan_fw, ip_name=None):
 
 def pan_securityzone(pan_fw, ip_name=None, label='_SecurityZone_'):
   """ Returns security zone of a PAN AddressObject with ip_name """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   try:
     if ip_name:
       return [securityzone for securityzone in pan_addressgroup_memberships(pan_fw, ip_name=ip_name)
@@ -161,8 +142,6 @@ def pan_securityzone(pan_fw, ip_name=None, label='_SecurityZone_'):
 
 def pan_addressgroup_members(pan_fw, name=''):
   """ Returns a list of addressgroup members """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   try:
     if name:
       return [ao.static_value for ao in pan_objs.AddressGroup.refreshall(pan_fw, add=False)
@@ -172,8 +151,6 @@ def pan_addressgroup_members(pan_fw, name=''):
 
 def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
   """ Returns a PAN static IP address group object """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
   ip_address_names = [ip.name for ip in current_ips if ip.value == ip_address]
   if not ip_address_names:
@@ -195,10 +172,8 @@ def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
   """ Azure Function App Execution Loop """
-  logger = logging.getLogger(__name__)
-  logger.setLevel(logging.INFO)
   logger.info('Python HTTP trigger function processed a request.')
-  if AUTH_CODE is None:
+  if APP_CONFIG['authorization_code'] is None:
     auth_code = temp_auth_code()
     logger.info('AUTH_CODE environment variable not found.')
     logger.info(f'Setting AUTH_CODE = {auth_code}')
@@ -214,12 +189,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(
       body='A valid authorization code must be supplied in the query string',
       status_code=401)
-  elif code != AUTH_CODE:
+  elif code != APP_CONFIG['authorization_code']:
     return func.HttpResponse(
       body='Authorization code is invalid',
       status_code=401)
   logger.info('Code supplied on query string matches AUTH_CODE.')
-  fw = pan_firewall(hostname=FW_IP, api_key=API_KEY)
+  fw = pan_firewall(hostname=APP_CONFIG['fw_ip'], api_key=APP_CONFIG['api_key'])
   try:
     req_body = req.get_json()
     nic = azure_nic(req_body)
