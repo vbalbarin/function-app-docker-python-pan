@@ -86,6 +86,7 @@ docker run -p 8080:80 \
   -e AUTH_CODE="${AUTH_CODE}" \
   -e FW_IP="${FW_IP}" \
   -e API_KEY="${API_KEY}" \
+  -e LOG_LEVEL="DEBUG" \
   -it ${DOCKER_IMAGE_TAG}
 
 # To test locally, a scrubbed Azure Alert webhook responsebody has been supplied. Edit `./samples/responseBody.sh`

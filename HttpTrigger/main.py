@@ -2,6 +2,7 @@
 
 import json
 import logging
+from logging.config import dictConfig
 import secrets
 import sys
 
@@ -12,19 +13,40 @@ from pandevice import objects as pan_objs
 from parse import *
 
 APP_CONFIG = {
+  'log_level': env.get('LOG_LEVEL', default='INFO'),
   'authorization_code': env.get('AUTH_CODE'),
   'fw_ip': env.get('FW_IP'),
   'api_key': env.get('API_KEY')
 }
 
-logging.basicConfig()
+LOG_CONFIG = {
+  "version": 1,
+  "disable_existing_loggers": False,
+  "formatters": {
+    "default": {
+      "format": "%(asctime)s [%(levelname)s] %(name)s %(message)s"
+    }
+  },
+  "handlers": {
+    "console": {
+      "class": "logging.StreamHandler",
+      "formatter": "default",
+      "level": APP_CONFIG['log_level']
+    }
+  },
+  "loggers": {
+    "": {
+      "handlers": ["console"],
+      "level": APP_CONFIG['log_level']
+    }
+  }
+}
+
+dictConfig(LOG_CONFIG)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 def temp_auth_code():
-  auth_code = secrets.token_urlsafe(32)
-  logger.info('Generated auth_code {}'.format(auth_code))
-  return auth_code
+  return secrets.token_urlsafe(32)
 
 def primary_private_ip(ip_configs):
   """ This function extracts primary, private ipaddress """
@@ -62,7 +84,7 @@ def pan_firewall(hostname='', api_key=''):
     version, platform, serial = parse(
       "SystemInfo(version='{}', platform='{}', serial='{}')",
       str(fw.refresh_system_info())).fixed
-    logger.info('FW version={}:FW platform={}: FW serial={}'.format(version, platform, serial))
+    logger.debug('FW version={}:FW platform={}: FW serial={}'.format(version, platform, serial))
     return fw
   except Exception as e:
     logger.error('Cannot connect to PAN:{}'.format(str(e)))
@@ -74,12 +96,12 @@ def pan_tags(pan_fw, tag_names=[]):
   current_tag_names= [t.name for t in current_tags]
   new_tags = list(
     set(tag_names).difference(set(current_tag_names)))
-  logger.info('Supplied tags:{}'.format(tag_names))
+  logger.debug('Supplied tags:{}'.format(tag_names))
   new_pan_tags = [pan_objs.Tag(name=t) for t in new_tags]
   # Add current and new tag objects to pan_fw object
   if new_pan_tags:
-    logger.info('Found {:d}'.format(len(new_tags)))
-    logger.info('Adding tags:{}'.format(new_tags))
+    logger.debug('Found {:d}'.format(len(new_tags)))
+    logger.debug('Adding tags:{}'.format(new_tags))
     tags_to_be_added = current_tags + new_pan_tags
     for pan_tag in tags_to_be_added:
       pan_fw.add(pan_tag)
@@ -87,12 +109,12 @@ def pan_tags(pan_fw, tag_names=[]):
     #tags_to_be_added[0].apply_similar()
     return tags_to_be_added
   else:
-    logger.info('All supplied tags already exist; no new tags added')
+    logger.debug('All supplied tags already exist; no new tags added')
     return current_tags
 
 def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
   """ Returns a list of PAN Address objects """
-  logger.info('IP address value: {}'.format(azure_nic['ipAddress']))
+  logger.debug('IP address value: {}'.format(azure_nic['ipAddress']))
   current_ips = pan_objs.AddressObject.refreshall(pan_fw, add=False)
   for ip in current_ips: pan_fw.add(ip) # Re-add existing
   if azure_nic['ipAddress']:
@@ -101,7 +123,7 @@ def pan_ips(pan_fw, azure_nic={"ipAddress": "", "tags": []}):
       value=azure_nic['ipAddress'],
       tag=azure_nic['tags'])
       # Adds or updates ip object in pan_fw
-    logger.info('Adding az_ip')
+    logger.debug('Adding az_ip')
     pan_fw.add(az_ip)
     az_ip.create()
     az_ip.apply()
@@ -162,7 +184,7 @@ def pan_addressgroup(pan_fw, address_group_name='', ip_address=None):
   if not current_addressgroup:
     logging.warn('PAN AddressGroup {} does not exist'.format(address_group_name))
     return None
-  logger.info('Found PAN AddressGroup {}'.format(address_group_name))
+  logger.debug('Found PAN AddressGroup {}'.format(address_group_name))
   current_addressgroup_static_values = set(current_addressgroup[0].static_value)
   addressgroup = pan_objs.AddressGroup(
     name=address_group_name,
@@ -207,21 +229,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     ips = pan_ips(pan_fw=fw, azure_nic=nic)
     if ips:
       logger.info('Updating PAN AddressObjects')
-      for ip in ips: logger.info(ip.name)
+      for ip in ips: logger.debug(ip.name)
       logger.info('Updated PAN AddressObjects')
     az_ip_securityzone = azure_securityzone(azure_nic=nic)
-    logger.info('Security Zone for Azure {}: {}'.format(nic['ipAddress'], az_ip_securityzone))
+    logger.info('Security Zone for Azure {}={}'.format(nic['ipAddress'], az_ip_securityzone))
     pan_ip_securityzone = pan_securityzone(pan_fw=fw, ip_name='ip_' + nic['ipAddress'])
-    logger.info('Security Zone for PAN {}: {}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
+    logger.info('Security Zone for PAN {}={}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
     if pan_ip_securityzone:
       if pan_ip_securityzone != az_ip_securityzone:
-        logger.info('Removing {} from {}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
+        logger.debug('Removing {} from {}'.format('ip_' + nic['ipAddress'], pan_ip_securityzone))
         static_value_members = pan_addressgroup_members(pan_fw=fw, name=pan_ip_securityzone)
-        logger.info('Current static_value: {}'.format(static_value_members))
+        logger.debug('Current static_value: {}'.format(static_value_members))
         s = set(static_value_members)
         s.discard('ip_' + nic['ipAddress'])
         new_static_value_members = list(s)
-        logger.info('New static_value: {}'.format(new_static_value_members))
+        logger.debug('New static_value: {}'.format(new_static_value_members))
         former_addressgrp = pan_objs.AddressGroup(
           name=pan_ip_securityzone,
           static_value=new_static_value_members)
@@ -232,8 +254,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         fw.add(former_addressgrp)
         fw.add(new_addressgrp)
         addressgrps = [former_addressgrp] + [new_addressgrp]
+        logger.info('AddressGroups modified')
       else:
-        logger.info('No changes in AddressGroups.')
+        logger.info('AddressGroups unmodified')
         addressgrps = []
     else:
       new_addressgrp = pan_addressgroup(
